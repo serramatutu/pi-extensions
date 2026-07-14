@@ -1,2 +1,5 @@
 packages:
   - "sandbox"
+allowBuilds:
+  '@google/genai': false
+  protobufjs: false
