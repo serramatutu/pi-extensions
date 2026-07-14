@@ -1,7 +1,9 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { existsSync } from "node:fs";
 import { posix, relative, resolve } from "node:path";
 import { Type } from "typebox";
-import { read } from "./client.ts";
+import { read, SandboxError } from "./client.ts";
+import { addMount } from "./config.ts";
 import { sandbox, startContainer } from "./watch.ts";
 
 const MAX_BYTES = 50 * 1024;
@@ -12,17 +14,57 @@ const readSchema = Type.Object({
   limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
 });
 
+function stripAt(path: string): string {
+  return path.startsWith("@") ? path.slice(1) : path;
+}
+
 /**
  * Maps a host-side path (relative to cwd) to the path inside the container,
- * where cwd is mounted at the sandbox workdir. Absolute paths pass through.
+ * where cwd is mounted at the sandbox workdir. Paths outside cwd resolve to
+ * their absolute host path, which is also where a granted mount is attached.
  */
 export function toContainerPath(cwd: string, workdir: string, path: string): string {
-  const clean = path.startsWith("@") ? path.slice(1) : path;
-  const abs = resolve(cwd, clean);
+  const abs = resolve(cwd, stripAt(path));
   const rel = relative(cwd, abs);
   if (rel === "") return workdir;
-  if (rel.startsWith("..") || posix.isAbsolute(rel)) return clean;
+  if (rel.startsWith("..") || posix.isAbsolute(rel)) return abs;
   return posix.join(workdir, rel.split(/[/\\]/).join("/"));
+}
+
+/**
+ * Reads a file from the sandbox. When the file is missing inside the container
+ * but present on the host, prompts the user to grant access; on approval the
+ * host file is mounted, the container reconciled, and the read retried.
+ */
+async function readWithGrant(ctx: ExtensionContext, path: string): Promise<string> {
+  await startContainer(ctx);
+  let box = sandbox();
+  if (!box) throw new Error("sandbox: no container running for this session");
+
+  const hostAbs = resolve(ctx.cwd, stripAt(path));
+  const target = toContainerPath(ctx.cwd, box.workdir, path);
+
+  try {
+    return await read(box.port, target);
+  } catch (err: any) {
+    const missing = err instanceof SandboxError && err.status === "not_found";
+    if (!missing || !ctx.hasUI || !existsSync(hostAbs)) throw err;
+
+    const choice = await ctx.ui.select(`Sandbox cannot access "${stripAt(path)}". It exists on the host — grant the agent access?`, [
+      "Grant access",
+      "Deny access",
+    ]);
+    if (choice !== "Grant access") throw err;
+
+    const cfgPath = await addMount(ctx.cwd, { source: hostAbs, target, readonly: true });
+    ctx.ui.notify(`sandbox: granted access to ${hostAbs} (mounted at ${target}, saved to ${cfgPath})`, "info");
+
+    // Config changed → reconcile restarts the container with the new mount.
+    await startContainer(ctx);
+    box = sandbox();
+    if (!box) throw err;
+    return await read(box.port, target);
+  }
 }
 
 /**
@@ -37,14 +79,7 @@ export function registerCommands(pi: ExtensionAPI): void {
     parameters: readSchema,
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      // Reconcile the container with the current config before every read.
-      await startContainer(ctx);
-
-      const box = sandbox();
-      if (!box) throw new Error("sandbox: no container running for this session");
-
-      const target = toContainerPath(ctx.cwd, box.workdir, params.path);
-      const content = await read(box.port, target);
+      const content = await readWithGrant(ctx, params.path);
 
       const lines = content.split("\n");
       const start = params.offset ? Math.max(0, params.offset - 1) : 0;
@@ -57,7 +92,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 
       return {
         content: [{ type: "text" as const, text }],
-        details: { path: target },
+        details: { path: toContainerPath(ctx.cwd, sandbox()?.workdir ?? "/workspace", params.path) },
       };
     },
   });

@@ -12,16 +12,16 @@ case "$cmd" in
 read)
   path=$(printf '%s' "$req" | jq -r '.path // empty')
   if [ -z "$path" ]; then
-    jq -cn '{ok:false, error:"missing path"}'
+    jq -cn '{ok:false, status:"bad_request", error:"missing path"}'
   elif [ -f "$path" ]; then
     content=$(base64 "$path" | tr -d '\\n')
-    jq -cn --arg c "$content" '{ok:true, contentBase64:$c}'
+    jq -cn --arg c "$content" '{ok:true, status:"ok", contentBase64:$c}'
   else
-    jq -cn --arg p "$path" '{ok:false, error:("no such file: " + $p)}'
+    jq -cn --arg p "$path" '{ok:false, status:"not_found", error:("no such file: " + $p)}'
   fi
   ;;
 *)
-  jq -cn --arg c "$cmd" '{ok:false, error:("unknown command: " + $c)}'
+  jq -cn --arg c "$cmd" '{ok:false, status:"unknown_command", error:("unknown command: " + $c)}'
   ;;
 esac
 `;

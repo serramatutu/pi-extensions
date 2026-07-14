@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -74,4 +74,23 @@ export async function loadConfig(cwd: string): Promise<LoadedConfig> {
   }
 
   return { config: configSchema.parse({}), source: null };
+}
+
+/**
+ * Adds a mount to the sandbox config file and returns the path written. Writes
+ * to the config that was loaded (cwd or global), or creates cwd/sandbox.json.
+ * No-ops when an identical mount already exists.
+ */
+export async function addMount(cwd: string, mount: SandboxMount): Promise<string> {
+  const { source } = await loadConfig(cwd);
+  const path = source ?? join(cwd, CWD_CONFIG);
+
+  const raw = ((await readJson(path)) ?? {}) as Record<string, unknown>;
+  const mounts = Array.isArray(raw.mounts) ? (raw.mounts as SandboxMount[]) : [];
+  const exists = mounts.some((m) => m.source === mount.source && m.target === mount.target);
+  if (!exists) mounts.push(mount);
+
+  raw.mounts = mounts;
+  await writeFile(path, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+  return path;
 }

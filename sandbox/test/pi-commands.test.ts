@@ -21,7 +21,7 @@ test("strips a leading @ before mapping", () => {
   assert.equal(toContainerPath(cwd, workdir, "@src/app.ts"), "/workspace/src/app.ts");
 });
 
-test("passes through paths outside cwd unchanged", () => {
+test("resolves paths outside cwd to their absolute host path", () => {
   assert.equal(toContainerPath(cwd, workdir, "/etc/hosts"), "/etc/hosts");
-  assert.equal(toContainerPath(cwd, workdir, "../other/file.ts"), "../other/file.ts");
+  assert.equal(toContainerPath(cwd, workdir, "../other/file.ts"), "/home/user/other/file.ts");
 });

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
-import { read } from "../src/client.ts";
+import { read, SandboxError } from "../src/client.ts";
 import { loadConfig, type SandboxConfig } from "../src/config.ts";
 import {
   available,
@@ -76,16 +76,13 @@ test("reads a file created inside the container", { skip }, async () => {
   assert(content === "written-inside\n", `unexpected content: ${JSON.stringify(content)}`);
 });
 
-test("rejects reading a missing file", { skip }, async () => {
-  await assertRejects(() => read(port, "/tmp/does-not-exist"), /no such file/);
-});
-
-async function assertRejects(fn: () => Promise<unknown>, pattern: RegExp): Promise<void> {
+test("rejects reading a missing file with a not_found status", { skip }, async () => {
   try {
-    await fn();
+    await read(port, "/tmp/does-not-exist");
   } catch (err: any) {
-    assert(pattern.test(String(err?.message ?? err)), `error did not match ${pattern}: ${err}`);
+    assert(err instanceof SandboxError, `expected SandboxError, got ${err}`);
+    assert(err.status === "not_found", `expected not_found status, got ${err.status}`);
     return;
   }
   throw new Error("expected rejection");
-}
+}); 

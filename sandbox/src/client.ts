@@ -5,6 +5,16 @@ interface Request {
   [key: string]: unknown;
 }
 
+/** Error carrying the protocol-level status returned by the sandbox server. */
+export class SandboxError extends Error {
+  readonly status: string;
+  constructor(message: string, status: string) {
+    super(`sandbox: ${message}`);
+    this.name = "SandboxError";
+    this.status = status;
+  }
+}
+
 /**
  * Opens a TCP connection to the sandbox server on the given host port, sends a
  * single JSON request, and resolves with the parsed JSON response.
@@ -30,6 +40,6 @@ function sendRequest(port: number, req: Request): Promise<any> {
 /** Reads a file from the container filesystem and returns its contents. */
 export async function read(port: number, path: string): Promise<string> {
   const res = await sendRequest(port, { cmd: "read", path });
-  if (!res.ok) throw new Error(`sandbox: ${res.error}`);
+  if (!res.ok) throw new SandboxError(res.error ?? "unknown error", res.status ?? "error");
   return Buffer.from(res.contentBase64, "base64").toString("utf8");
 }
