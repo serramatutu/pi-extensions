@@ -35,7 +35,7 @@ before(
     config.image = "pi-sandbox-e2e-test";
     config.namePrefix = "pi-sandbox-e2e-";
 
-    assert(await ensureImage(config, true), "image build failed");
+    assert(await ensureImage(config), "image build failed");
 
     name = containerName(config, "e2e-session");
     const run = await startContainer(config, name, workdir);

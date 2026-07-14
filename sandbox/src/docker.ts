@@ -5,6 +5,7 @@ import { SERVER_PORT, type SandboxConfig } from "./config.ts";
 import { generateDockerfile } from "./dockerfile.ts";
 
 const CONFIG_HASH_LABEL = "pi.sandbox.config-hash";
+const DOCKERFILE_HASH_LABEL = "pi.sandbox.dockerfile-hash";
 
 export function configHash(config: SandboxConfig): string {
   return createHash("sha256").update(JSON.stringify(config)).digest("hex");
@@ -28,9 +29,11 @@ async function docker(args: string[]): Promise<Result> {
 }
 
 function dockerBuildFromStdin(image: string, dockerfile: string): Promise<Result> {
+  const dfHash = createHash("sha256").update(dockerfile).digest("hex");
   return new Promise((resolve) => {
     // `docker build -` reads the Dockerfile from stdin with an empty build context.
-    const child = spawn("docker", ["build", "-t", image, "-"], { stdio: ["pipe", "pipe", "pipe"] });
+    const args = ["build", "-t", image, "--label", `${DOCKERFILE_HASH_LABEL}=${dfHash}`, "-"];
+    const child = spawn("docker", args, { stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));
@@ -49,13 +52,22 @@ export async function available(): Promise<boolean> {
   return (await docker(["--version"])).ok;
 }
 
-async function imageExists(config: SandboxConfig): Promise<boolean> {
-  return (await docker(["image", "inspect", config.image])).ok;
+/** Returns the Dockerfile hash label of the existing image, or null if absent. */
+async function imageDockerfileHash(image: string): Promise<string | null> {
+  const res = await docker(["image", "inspect", "-f", `{{index .Config.Labels "${DOCKERFILE_HASH_LABEL}"}}`, image]);
+  if (!res.ok) return null;
+  return res.stdout.trim() || null;
 }
 
-export async function ensureImage(config: SandboxConfig, rebuild = false): Promise<boolean> {
-  if (!rebuild && (await imageExists(config))) return true;
-  return (await dockerBuildFromStdin(config.image, generateDockerfile(config))).ok;
+/**
+ * Builds the image when it is missing or when its baked Dockerfile differs from
+ * the one the current config produces (e.g. a stale image from an older build).
+ */
+export async function ensureImage(config: SandboxConfig): Promise<boolean> {
+  const dockerfile = generateDockerfile(config);
+  const wantHash = createHash("sha256").update(dockerfile).digest("hex");
+  if ((await imageDockerfileHash(config.image)) === wantHash) return true;
+  return (await dockerBuildFromStdin(config.image, dockerfile)).ok;
 }
 
 /** Returns the config hash of a running container, or null if it isn't running. */
