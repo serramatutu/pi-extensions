@@ -14,33 +14,29 @@ test("uses the configured base image", async () => {
   assert.match(generateDockerfile(config), /^FROM alpine:3\.20$/m);
 });
 
-test("installs configured tools and required server packages", async () => {
+test("installs default tools, extra tools, and required server packages", async () => {
   const config = await defaultConfig();
-  config.tools = ["git", "curl"];
+  config.extraTools = ["htop"];
   const df = generateDockerfile(config);
 
   assert.match(df, /apk add --no-cache/);
-  for (const pkg of ["git", "curl", "socat", "python3"]) {
+  for (const pkg of ["git", "curl", "htop", "socat", "python3"]) {
     assert.match(df, new RegExp(`\\n\\s+${pkg}(\\s|$)`, "m"), `expected package ${pkg}`);
   }
 });
 
-test("deduplicates packages when tools overlap server requirements", async () => {
+test("deduplicates packages when extra tools overlap server requirements", async () => {
   const config = await defaultConfig();
-  config.tools = ["python3", "socat", "git"];
+  config.extraTools = ["python3", "socat", "git"];
   const df = generateDockerfile(config);
 
   assert.equal(df.match(/\n\s+python3(\s|$)/gm)?.length, 1);
   assert.equal(df.match(/\n\s+socat(\s|$)/gm)?.length, 1);
 });
 
-test("adds fdfind alias only when fd is installed", async () => {
+test("adds fdfind alias when fd is installed", async () => {
   const config = await defaultConfig();
-  config.tools = ["fd"];
   assert.match(generateDockerfile(config), /ln -s .* \/usr\/local\/bin\/fdfind/);
-
-  config.tools = ["git"];
-  assert.doesNotMatch(generateDockerfile(config), /fdfind/);
 });
 
 test("exposes and serves on the internal server port", async () => {

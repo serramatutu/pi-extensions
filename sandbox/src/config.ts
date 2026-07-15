@@ -7,7 +7,20 @@ import { z } from "zod";
 /** Port the sandbox server listens on inside the container. */
 export const SERVER_PORT = 7070;
 
-const DEFAULT_TOOLS = ["bash", "coreutils", "findutils", "sed", "gawk", "jq", "yq", "ripgrep", "fd", "git", "curl", "ca-certificates"];
+export const DEFAULT_TOOLS = [
+  "bash",
+  "coreutils",
+  "findutils",
+  "sed",
+  "gawk",
+  "jq",
+  "yq",
+  "ripgrep",
+  "fd",
+  "git",
+  "curl",
+  "ca-certificates",
+];
 
 const mountSchema = z.object({
   source: z.string().min(1),
@@ -20,7 +33,7 @@ const configSchema = z.object({
   backend: z.enum(["docker", "container"]).default("docker"),
   image: z.string().min(1).default("pi-coding-sandbox"),
   baseImage: z.string().min(1).default("alpine:latest"),
-  tools: z.array(z.string().min(1)).default(DEFAULT_TOOLS),
+  extraTools: z.array(z.string().min(1)).default([]),
   workdir: z.string().min(1).default("/workspace"),
   namePrefix: z.string().min(1).default("pi-sandbox-"),
   mountCwd: z.boolean().default(true),
@@ -35,6 +48,15 @@ export type SandboxConfig = z.infer<typeof configSchema>;
 
 const CWD_CONFIG = "pi-sandbox.yaml";
 const GLOBAL_CONFIG = join(homedir(), ".pi", "agent", "pi-sandbox.yaml");
+
+const toCamel = (key: string) => key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+const toSnake = (key: string) => key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+
+/** Rewrites the top-level keys of an object using the supplied converter. */
+function mapKeys(value: unknown, convert: (key: string) => string): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [convert(k), v]));
+}
 
 async function readYaml(path: string): Promise<unknown | null> {
   try {
@@ -60,7 +82,7 @@ export async function loadConfig(cwd: string): Promise<LoadedConfig> {
   for (const path of candidates) {
     const raw = await readYaml(path);
     if (raw === null) continue;
-    return { config: configSchema.parse(raw), source: path };
+    return { config: configSchema.parse(mapKeys(raw, toCamel)), source: path };
   }
 
   return { config: configSchema.parse({}), source: null };
@@ -75,10 +97,10 @@ async function updateConfig(cwd: string, mutate: (raw: Record<string, unknown>) 
   const { source } = await loadConfig(cwd);
   const path = source ?? join(cwd, CWD_CONFIG);
 
-  const raw = ((await readYaml(path)) ?? {}) as Record<string, unknown>;
+  const raw = (mapKeys((await readYaml(path)) ?? {}, toCamel) ?? {}) as Record<string, unknown>;
   mutate(raw);
 
-  await writeFile(path, stringify(raw), "utf8");
+  await writeFile(path, stringify(mapKeys(raw, toSnake)), "utf8");
   return path;
 }
 

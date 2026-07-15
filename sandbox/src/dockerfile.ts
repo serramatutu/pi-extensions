@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SERVER_PORT, type SandboxConfig } from "./config.ts";
+import { DEFAULT_TOOLS, SERVER_PORT, type SandboxConfig } from "./config.ts";
 
 const SERVER_PACKAGES = ["socat", "python3"];
 
@@ -17,7 +17,7 @@ export function readHandlerScript(): string {
 }
 
 export function generateDockerfile(config: SandboxConfig): string {
-  const packages = [...new Set([...config.tools, ...SERVER_PACKAGES])];
+  const packages = [...new Set([...DEFAULT_TOOLS, ...config.extraTools, ...SERVER_PACKAGES])];
   const lines: string[] = [`FROM ${config.baseImage}`];
 
   const pkgList = packages.map((tool) => `    ${tool}`).join(" \\\n");
