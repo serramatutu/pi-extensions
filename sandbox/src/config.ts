@@ -1,5 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { z } from "zod";
@@ -28,9 +28,12 @@ const mountSchema = z.object({
   readonly: z.boolean().default(false),
 });
 
+// Apple's `container` CLI is macOS-only; default to it there and Docker elsewhere.
+const DEFAULT_BACKEND = platform() === "darwin" ? "container" : "docker";
+
 const configSchema = z.object({
   // Container backend that runs the sandbox: Docker or Apple's `container` CLI.
-  backend: z.enum(["docker", "container"]).default("docker"),
+  backend: z.enum(["docker", "container"]).default(DEFAULT_BACKEND),
   image: z.string().min(1).default("pi-coding-sandbox"),
   baseImage: z.string().min(1).default("alpine:latest"),
   extraTools: z.array(z.string().min(1)).default([]),

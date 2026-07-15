@@ -20,8 +20,9 @@ export function sandbox(): Sandbox | null {
   return current;
 }
 
-function statusMessage(msg: string): string {
-  return `[🐳 ${msg}]`;
+function statusMessage(backend: Backend, msg: string): string {
+  const runtime = backend.name === "container" ? "apple" : backend.name;
+  return `[📦 ${runtime} ${msg}]`;
 }
 
 /** Clears the sandbox status line and reports a startup error to the user. */
@@ -59,13 +60,13 @@ export async function startContainer(ctx: ExtensionContext): Promise<void> {
   if (running === hash) {
     await track(backend, name, config.workdir);
     if (current) {
-      ctx.ui.setStatus("sandbox", statusMessage(`:${current.port}`));
+      ctx.ui.setStatus("sandbox", statusMessage(backend, `${current.host}:${current.port}`));
       return;
     }
   }
 
   const changed = running !== null;
-  ctx.ui.setStatus("sandbox", statusMessage(changed ? "config changed; restarting container…" : "starting container…"));
+  ctx.ui.setStatus("sandbox", statusMessage(backend, changed ? "config changed; restarting container…" : "starting container…"));
 
   if (!(await backend.ensureImage(config))) {
     return fail(ctx, `sandbox: failed to build image ${config.image}`);
@@ -80,7 +81,7 @@ export async function startContainer(ctx: ExtensionContext): Promise<void> {
   if (!current) {
     return fail(ctx, `sandbox: container ${name} started but no endpoint could be resolved`);
   }
-  ctx.ui.setStatus("sandbox", statusMessage(`:${current.port}`));
+  ctx.ui.setStatus("sandbox", statusMessage(backend, `${current.host}:${current.port}`));
   ctx.ui.notify(`sandbox: container ${name} ${changed ? "restarted" : "started"} on port ${current.port}`, "info");
 }
 
