@@ -11,7 +11,8 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "*.{ts,js,json,md,yaml,yml}": "prettier --write"
+    "*.{ts,js,json,md,yaml,yml}": "prettier --write",
+    "*.py": ["uvx ruff format", "uvx ruff check"]
   },
   "devDependencies": {
     "husky": "^9.1.7",

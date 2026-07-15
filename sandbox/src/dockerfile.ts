@@ -1,48 +1,17 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { SERVER_PORT, type SandboxConfig } from "./config.ts";
 
-const SERVER_PACKAGES = ["socat", "jq", "coreutils"];
+const SERVER_PACKAGES = ["socat", "python3"];
 
 const HANDLER_PATH = "/usr/local/bin/sandbox-handler";
+const HANDLER_SOURCE = join(dirname(fileURLToPath(import.meta.url)), "handler.py");
 
-const HANDLER_SCRIPT = `#!/bin/sh
-set -eu
-req=$(cat)
-cmd=$(printf '%s' "$req" | jq -r '.cmd // empty')
-case "$cmd" in
-read)
-  path=$(printf '%s' "$req" | jq -r '.path // empty')
-  if [ -z "$path" ]; then
-    jq -cn '{ok:false, status:"bad_request", error:"missing path"}'
-  elif [ -f "$path" ]; then
-    content=$(base64 "$path" | tr -d '\\n')
-    jq -cn --arg c "$content" '{ok:true, status:"ok", contentBase64:$c}'
-  else
-    jq -cn --arg p "$path" '{ok:false, status:"not_found", error:("no such file: " + $p)}'
-  fi
-  ;;
-write)
-  path=$(printf '%s' "$req" | jq -r '.path // empty')
-  if [ -z "$path" ]; then
-    jq -cn '{ok:false, status:"bad_request", error:"missing path"}'
-  else
-    dir=$(dirname "$path")
-    if mkdir -p "$dir" && printf '%s' "$req" | jq -r '.contentBase64 // empty' | base64 -d > "$path"; then
-      jq -cn '{ok:true, status:"ok"}'
-    else
-      jq -cn --arg p "$path" '{ok:false, status:"write_failed", error:("could not write: " + $p)}'
-    fi
-  fi
-  ;;
-*)
-  jq -cn --arg c "$cmd" '{ok:false, status:"unknown_command", error:("unknown command: " + $c)}'
-  ;;
-esac
-`;
+export function readHandlerScript(): string {
+  return readFileSync(HANDLER_SOURCE, "utf8");
+}
 
-/**
- * Generates an Alpine-based Dockerfile from the sandbox config. The image runs a
- * socat server that executes tool-call requests received over a TCP socket.
- */
 export function generateDockerfile(config: SandboxConfig): string {
   const packages = [...new Set([...config.tools, ...SERVER_PACKAGES])];
   const lines: string[] = [`FROM ${config.baseImage}`];
@@ -56,7 +25,7 @@ export function generateDockerfile(config: SandboxConfig): string {
   }
 
   // Bake the handler script via base64 to avoid Dockerfile quoting issues.
-  const encoded = Buffer.from(HANDLER_SCRIPT, "utf8").toString("base64");
+  const encoded = Buffer.from(readHandlerScript(), "utf8").toString("base64");
   lines.push("", `RUN echo "${encoded}" | base64 -d > ${HANDLER_PATH} && chmod +x ${HANDLER_PATH}`);
 
   lines.push(

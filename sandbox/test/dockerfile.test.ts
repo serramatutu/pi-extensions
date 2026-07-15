@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loadConfig } from "../src/config.ts";
-import { generateDockerfile } from "../src/dockerfile.ts";
+import { generateDockerfile, readHandlerScript } from "../src/dockerfile.ts";
 
 async function defaultConfig() {
   const { config } = await loadConfig("/nonexistent-dir");
@@ -20,17 +20,17 @@ test("installs configured tools and required server packages", async () => {
   const df = generateDockerfile(config);
 
   assert.match(df, /apk add --no-cache/);
-  for (const pkg of ["git", "curl", "socat", "jq", "coreutils"]) {
+  for (const pkg of ["git", "curl", "socat", "python3"]) {
     assert.match(df, new RegExp(`\\n\\s+${pkg}(\\s|$)`, "m"), `expected package ${pkg}`);
   }
 });
 
 test("deduplicates packages when tools overlap server requirements", async () => {
   const config = await defaultConfig();
-  config.tools = ["jq", "socat", "git"];
+  config.tools = ["python3", "socat", "git"];
   const df = generateDockerfile(config);
 
-  assert.equal(df.match(/\n\s+jq(\s|$)/gm)?.length, 1);
+  assert.equal(df.match(/\n\s+python3(\s|$)/gm)?.length, 1);
   assert.equal(df.match(/\n\s+socat(\s|$)/gm)?.length, 1);
 });
 
@@ -57,9 +57,14 @@ test("bakes the handler script as a decodable base64 blob", async () => {
   assert.ok(match, "expected base64 handler install line");
 
   const script = Buffer.from(match![1], "base64").toString("utf8");
-  assert.match(script, /^#!\/bin\/sh/);
-  assert.match(script, /read\)/);
-  assert.match(script, /write\)/);
+  assert.equal(script, readHandlerScript(), "baked script should match handler.py");
+});
+
+test("handler script implements the read and write commands", () => {
+  const script = readHandlerScript();
+  assert.match(script, /^#!\/usr\/bin\/env python3/);
+  assert.match(script, /cmd == "read"/);
+  assert.match(script, /cmd == "write"/);
   assert.match(script, /unknown command/);
 });
 
