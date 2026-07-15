@@ -68,6 +68,11 @@ function stripAt(path: string): string {
   return path.startsWith("@") ? path.slice(1) : path;
 }
 
+/** Single-quotes a value so it is passed verbatim to the container shell. */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 /**
  * Maps a host-side path (relative to cwd) to the path inside the container,
  * where cwd is mounted at the sandbox workdir. Paths outside cwd resolve to
@@ -221,6 +226,17 @@ async function editWithGrant(ctx: ExtensionContext, path: string, edits: Edit[])
   return target;
 }
 
+/**
+ * Runs a prebuilt command line in the container and returns a tool result with
+ * the combined stdout/stderr (truncated), falling back to emptyText when there
+ * is no output.
+ */
+async function runCommand(box: Sandbox, argv: string[], emptyText: string) {
+  const res = await exec(box.port, argv.join(" "));
+  const text = truncateTail([res.stdout, res.stderr].filter(Boolean).join("\n"));
+  return { content: [{ type: "text" as const, text: text || emptyText }], details: { exitCode: res.exitCode } };
+}
+
 export function registerCommands(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "request_env_var",
@@ -281,6 +297,77 @@ export function registerCommands(pi: ExtensionAPI): void {
         content: [{ type: "text" as const, text: `Wrote ${bytes} bytes to ${target}` }],
         details: { path: target },
       };
+    },
+  });
+
+  pi.registerTool({
+    name: "grep",
+    label: "grep (sandbox)",
+    description: "Search file contents in the sandbox with ripgrep.",
+    parameters: Type.Object({
+      pattern: Type.String({ description: "Regular expression to search for (ripgrep syntax)" }),
+      path: Type.Optional(Type.String({ description: "File or directory to search in (default: workspace root)" })),
+      glob: Type.Optional(Type.String({ description: "Only search files matching this glob, e.g. '*.ts'" })),
+      ignoreCase: Type.Optional(Type.Boolean({ description: "Case-insensitive search" })),
+      filesOnly: Type.Optional(Type.Boolean({ description: "List only file paths that contain matches" })),
+      noIgnore: Type.Optional(Type.Boolean({ description: "Also search files ignored by .gitignore and hidden files" })),
+    }),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const box = await ensureBox(ctx);
+      const argv = ["rg", "--line-number", "--no-heading", "--color=never"];
+      if (params.ignoreCase) argv.push("--ignore-case");
+      if (params.filesOnly) argv.push("--files-with-matches");
+      if (params.noIgnore) argv.push("--no-ignore", "--hidden");
+      if (params.glob) argv.push("--glob", shellQuote(params.glob));
+      argv.push("--", shellQuote(params.pattern));
+      if (params.path) argv.push(shellQuote(toContainerPath(ctx.cwd, box.workdir, params.path)));
+
+      return runCommand(box, argv, "No matches found");
+    },
+  });
+
+  pi.registerTool({
+    name: "find",
+    label: "find (sandbox)",
+    description: "Find files and directories in the sandbox with fd.",
+    parameters: Type.Object({
+      pattern: Type.Optional(Type.String({ description: "Glob to match against file names, e.g. '*.ts' (default: list everything)" })),
+      path: Type.Optional(Type.String({ description: "Directory to search in (default: workspace root)" })),
+      type: Type.Optional(Type.String({ description: "Filter by type: 'f' (file), 'd' (directory), 'l' (symlink)" })),
+      noIgnore: Type.Optional(Type.Boolean({ description: "Also include files ignored by .gitignore and hidden files" })),
+    }),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const box = await ensureBox(ctx);
+      const argv = ["fd", "--color=never", "--glob"];
+      if (params.noIgnore) argv.push("--no-ignore", "--hidden");
+      if (params.type) argv.push("--type", shellQuote(params.type));
+      if (params.path) argv.push("--search-path", shellQuote(toContainerPath(ctx.cwd, box.workdir, params.path)));
+      if (params.pattern) argv.push("--", shellQuote(params.pattern));
+
+      return runCommand(box, argv, "No results");
+    },
+  });
+
+  pi.registerTool({
+    name: "ls",
+    label: "ls (sandbox)",
+    description: "List a directory in the sandbox.",
+    parameters: Type.Object({
+      path: Type.Optional(Type.String({ description: "Directory or file to list (default: workspace root)" })),
+      all: Type.Optional(Type.Boolean({ description: "Include entries starting with '.'" })),
+      long: Type.Optional(Type.Boolean({ description: "Use long listing format" })),
+    }),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const box = await ensureBox(ctx);
+      const argv = ["ls", "-1"];
+      if (params.all) argv.push("-a");
+      if (params.long) argv.push("-l");
+      argv.push(shellQuote(toContainerPath(ctx.cwd, box.workdir, params.path ?? ".")));
+
+      return runCommand(box, argv, "[Empty]");
     },
   });
 

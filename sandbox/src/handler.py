@@ -17,26 +17,29 @@ def respond(obj):
     sys.stdout.flush()
 
 
+def error(status, message):
+    return {"ok": False, "status": status, "error": message}
+
+
+def b64(data):
+    return base64.b64encode(data).decode("ascii")
+
+
 def handle(req):
     cmd = req.get("cmd")
     path = req.get("path")
 
     if cmd == "read":
         if not path:
-            return {"ok": False, "status": "bad_request", "error": "missing path"}
+            return error("bad_request", "missing path")
         if not os.path.isfile(path):
-            return {
-                "ok": False,
-                "status": "not_found",
-                "error": f"no such file: {path}",
-            }
+            return error("not_found", f"no such file: {path}")
         with open(path, "rb") as f:
-            content = base64.b64encode(f.read()).decode("ascii")
-        return {"ok": True, "status": "ok", "contentBase64": content}
+            return {"ok": True, "status": "ok", "contentBase64": b64(f.read())}
 
     if cmd == "write":
         if not path:
-            return {"ok": False, "status": "bad_request", "error": "missing path"}
+            return error("bad_request", "missing path")
         try:
             parent = os.path.dirname(path)
             if parent:
@@ -45,21 +48,18 @@ def handle(req):
             with open(path, "wb") as f:
                 f.write(data)
         except OSError as err:
-            return {
-                "ok": False,
-                "status": "write_failed",
-                "error": f"could not write: {path}: {err}",
-            }
+            return error("write_failed", f"could not write: {path}: {err}")
         return {"ok": True, "status": "ok"}
 
     if cmd == "exec":
         command = req.get("command")
         if not command:
-            return {"ok": False, "status": "bad_request", "error": "missing command"}
+            return error("bad_request", "missing command")
         try:
             proc = subprocess.run(
                 ["bash", "-c", command],
                 capture_output=True,
+                stdin=subprocess.DEVNULL,
                 timeout=req.get("timeout"),
             )
         except subprocess.TimeoutExpired as err:
@@ -67,22 +67,18 @@ def handle(req):
                 "ok": True,
                 "status": "timeout",
                 "exitCode": 124,
-                "stdoutBase64": base64.b64encode(err.stdout or b"").decode("ascii"),
-                "stderrBase64": base64.b64encode(err.stderr or b"").decode("ascii"),
+                "stdoutBase64": b64(err.stdout or b""),
+                "stderrBase64": b64(err.stderr or b""),
             }
         return {
             "ok": True,
             "status": "ok",
             "exitCode": proc.returncode,
-            "stdoutBase64": base64.b64encode(proc.stdout).decode("ascii"),
-            "stderrBase64": base64.b64encode(proc.stderr).decode("ascii"),
+            "stdoutBase64": b64(proc.stdout),
+            "stderrBase64": b64(proc.stderr),
         }
 
-    return {
-        "ok": False,
-        "status": "unknown_command",
-        "error": f"unknown command: {cmd}",
-    }
+    return error("unknown_command", f"unknown command: {cmd}")
 
 
 def main():
@@ -90,7 +86,7 @@ def main():
     try:
         req = json.loads(raw or b"{}")
     except json.JSONDecodeError:
-        respond({"ok": False, "status": "bad_request", "error": "invalid JSON request"})
+        respond(error("bad_request", "invalid JSON request"))
         return
     respond(handle(req))
 
