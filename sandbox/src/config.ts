@@ -78,20 +78,45 @@ export async function loadConfig(cwd: string): Promise<LoadedConfig> {
 }
 
 /**
- * Adds a mount to the sandbox config file and returns the path written. Writes
- * to the config that was loaded (cwd or global), or creates cwd/pi-sandbox.yaml.
- * No-ops when an identical mount already exists.
+ * Loads the config file, applies a mutation to its raw contents, and writes it
+ * back. Writes to the config that was loaded (cwd or global), or creates
+ * cwd/pi-sandbox.yaml. Returns the path written.
  */
-export async function addMount(cwd: string, mount: SandboxMount): Promise<string> {
+async function updateConfig(cwd: string, mutate: (raw: Record<string, unknown>) => void): Promise<string> {
   const { source } = await loadConfig(cwd);
   const path = source ?? join(cwd, CWD_CONFIG);
 
   const raw = ((await readYaml(path)) ?? {}) as Record<string, unknown>;
-  const mounts = Array.isArray(raw.mounts) ? (raw.mounts as SandboxMount[]) : [];
-  const exists = mounts.some((m) => m.source === mount.source && m.target === mount.target);
-  if (!exists) mounts.push(mount);
+  mutate(raw);
 
-  raw.mounts = mounts;
   await writeFile(path, stringify(raw), "utf8");
   return path;
+}
+
+/** Adds a mount to the config. No-ops when an identical mount already exists. */
+export function addMount(cwd: string, mount: SandboxMount): Promise<string> {
+  return updateConfig(cwd, (raw) => {
+    const mounts = Array.isArray(raw.mounts) ? (raw.mounts as SandboxMount[]) : [];
+    const exists = mounts.some((m) => m.source === mount.source && m.target === mount.target);
+    if (!exists) mounts.push(mount);
+    raw.mounts = mounts;
+  });
+}
+
+/** Sets an env var value in the config "env" map. */
+export function addEnv(cwd: string, name: string, value: string): Promise<string> {
+  return updateConfig(cwd, (raw) => {
+    const env = (raw.env && typeof raw.env === "object" ? raw.env : {}) as Record<string, string>;
+    env[name] = value;
+    raw.env = env;
+  });
+}
+
+/** Adds an env var name to the config "envForward" list. No-ops when already forwarded. */
+export function addEnvForward(cwd: string, name: string): Promise<string> {
+  return updateConfig(cwd, (raw) => {
+    const forward = Array.isArray(raw.envForward) ? (raw.envForward as string[]) : [];
+    if (!forward.includes(name)) forward.push(name);
+    raw.envForward = forward;
+  });
 }

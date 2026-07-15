@@ -3,10 +3,55 @@ import { existsSync } from "node:fs";
 import { posix, relative, resolve } from "node:path";
 import { Type } from "typebox";
 import { read, SandboxError } from "./client.ts";
-import { addMount } from "./config.ts";
+import { addEnv, addEnvForward, addMount } from "./config.ts";
 import { sandbox, startContainer } from "./watch.ts";
 
+const TYPE_VALUE = "Type in a value";
+const FORWARD_HOST = "Forward from host";
+const DENY = "Deny access";
+
+/**
+ * Prompts the user to satisfy a missing sandbox env var. Always offers typing a
+ * value or denying; when the host harness has the same var set, also offers
+ * forwarding it. Typing writes the config "env" map; forwarding writes
+ * "envForward".
+ */
+async function requestEnvVar(ctx: ExtensionContext, name: string): Promise<string> {
+  if (!ctx.hasUI) throw new Error("sandbox: cannot request an env var without a UI");
+
+  const options = name in process.env ? [TYPE_VALUE, FORWARD_HOST, DENY] : [TYPE_VALUE, DENY];
+
+  const choice = await ctx.ui.select(`Sandbox is missing environment variable "${name}". How should it be provided?`, options);
+
+  if (choice === TYPE_VALUE) {
+    const value = await ctx.ui.input(`Value for ${name}`);
+    if (value === undefined) {
+      ctx.ui.notify(`sandbox: cancelled request for ${name}`, "info");
+      return `User cancelled the request for ${name}.`;
+    }
+    const cfgPath = await addEnv(ctx.cwd, name, value);
+    ctx.ui.notify(`sandbox: set ${name} in ${cfgPath}`, "info");
+    // Config changed → reconcile restarts the container with the new env.
+    await startContainer(ctx);
+    return `User provided a value for ${name}; it is now set in the sandbox.`;
+  }
+
+  if (choice === FORWARD_HOST) {
+    const cfgPath = await addEnvForward(ctx.cwd, name);
+    ctx.ui.notify(`sandbox: forwarding ${name} from host (saved to ${cfgPath})`, "info");
+    await startContainer(ctx);
+    return `User chose to forward ${name} from the host; it is now available in the sandbox.`;
+  }
+
+  ctx.ui.notify(`sandbox: denied access to ${name}`, "info");
+  return `User denied access to ${name}.`;
+}
+
 const MAX_BYTES = 50 * 1024;
+
+const requestEnvVarSchema = Type.Object({
+  name: Type.String({ description: "Name of the missing environment variable to request from the user" }),
+});
 
 const readSchema = Type.Object({
   path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
@@ -67,11 +112,20 @@ async function readWithGrant(ctx: ExtensionContext, path: string): Promise<strin
   }
 }
 
-/**
- * Registers a `read` tool that overrides the built-in one, servicing reads from
- * the session's sandbox container over TCP instead of the host filesystem.
- */
 export function registerCommands(pi: ExtensionAPI): void {
+  pi.registerTool({
+    name: "request_env_var",
+    label: "request_env_var (sandbox)",
+    description:
+      "Request a missing environment variable from the user. Use it when a command fails due to missing environment config.",
+    parameters: requestEnvVarSchema,
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const text = await requestEnvVar(ctx, params.name);
+      return { content: [{ type: "text" as const, text }], details: { name: params.name } };
+    },
+  });
+
   pi.registerTool({
     name: "read",
     label: "read (sandbox)",
