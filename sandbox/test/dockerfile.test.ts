@@ -65,6 +65,7 @@ test("handler script implements the read and write commands", () => {
   assert.match(script, /^#!\/usr\/bin\/env python3/);
   assert.match(script, /cmd == "read"/);
   assert.match(script, /cmd == "write"/);
+  assert.match(script, /cmd == "exec"/);
   assert.match(script, /unknown command/);
 });
 

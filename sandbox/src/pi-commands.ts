@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { existsSync } from "node:fs";
 import { dirname, posix, relative, resolve } from "node:path";
 import { Type } from "typebox";
-import { read, SandboxError, write } from "./client.ts";
+import { exec, read, SandboxError, write } from "./client.ts";
 import { addEnv, addEnvForward, addMount, loadConfig } from "./config.ts";
 import { sandbox, type Sandbox, startContainer } from "./watch.ts";
 
@@ -48,6 +48,21 @@ async function requestEnvVar(ctx: ExtensionContext, name: string): Promise<strin
 }
 
 const MAX_BYTES = 50 * 1024;
+const MAX_LINES = 2000;
+
+/** Trims output to the last MAX_LINES lines and MAX_BYTES bytes. */
+function truncateTail(text: string): string {
+  let lines = text.split("\n");
+  let truncated = lines.length > MAX_LINES;
+  if (truncated) lines = lines.slice(-MAX_LINES);
+
+  let out = lines.join("\n");
+  if (Buffer.byteLength(out, "utf8") > MAX_BYTES) {
+    out = out.slice(-MAX_BYTES);
+    truncated = true;
+  }
+  return truncated ? `[Output truncated to last ${MAX_LINES} lines / 50KB]\n${out}` : out;
+}
 
 function stripAt(path: string): string {
   return path.startsWith("@") ? path.slice(1) : path;
@@ -265,6 +280,31 @@ export function registerCommands(pi: ExtensionAPI): void {
       return {
         content: [{ type: "text" as const, text: `Wrote ${bytes} bytes to ${target}` }],
         details: { path: target },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "bash",
+    label: "bash (sandbox)",
+    description: "Execute a bash command in the sandbox container. Returns combined stdout and stderr.",
+    parameters: Type.Object({
+      command: Type.String({ description: "Bash command to execute" }),
+      timeout: Type.Optional(Type.Number({ description: "Timeout in seconds" })),
+    }),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const box = await ensureBox(ctx);
+      const res = await exec(box.port, params.command, params.timeout);
+
+      const combined = [res.stdout, res.stderr].filter(Boolean).join("\n");
+      let text = truncateTail(combined);
+      if (res.timedOut) text += `\n\n[Command timed out]`;
+      else if (res.exitCode !== 0) text += `\n\n[Exit code: ${res.exitCode}]`;
+
+      return {
+        content: [{ type: "text" as const, text: text || "[No output]" }],
+        details: { exitCode: res.exitCode, timedOut: res.timedOut },
       };
     },
   });

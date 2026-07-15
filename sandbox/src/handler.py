@@ -8,6 +8,7 @@ stdout. socat runs one instance of this script per TCP connection.
 import base64
 import json
 import os
+import subprocess
 import sys
 
 
@@ -24,7 +25,11 @@ def handle(req):
         if not path:
             return {"ok": False, "status": "bad_request", "error": "missing path"}
         if not os.path.isfile(path):
-            return {"ok": False, "status": "not_found", "error": f"no such file: {path}"}
+            return {
+                "ok": False,
+                "status": "not_found",
+                "error": f"no such file: {path}",
+            }
         with open(path, "rb") as f:
             content = base64.b64encode(f.read()).decode("ascii")
         return {"ok": True, "status": "ok", "contentBase64": content}
@@ -40,10 +45,44 @@ def handle(req):
             with open(path, "wb") as f:
                 f.write(data)
         except OSError as err:
-            return {"ok": False, "status": "write_failed", "error": f"could not write: {path}: {err}"}
+            return {
+                "ok": False,
+                "status": "write_failed",
+                "error": f"could not write: {path}: {err}",
+            }
         return {"ok": True, "status": "ok"}
 
-    return {"ok": False, "status": "unknown_command", "error": f"unknown command: {cmd}"}
+    if cmd == "exec":
+        command = req.get("command")
+        if not command:
+            return {"ok": False, "status": "bad_request", "error": "missing command"}
+        try:
+            proc = subprocess.run(
+                ["bash", "-c", command],
+                capture_output=True,
+                timeout=req.get("timeout"),
+            )
+        except subprocess.TimeoutExpired as err:
+            return {
+                "ok": True,
+                "status": "timeout",
+                "exitCode": 124,
+                "stdoutBase64": base64.b64encode(err.stdout or b"").decode("ascii"),
+                "stderrBase64": base64.b64encode(err.stderr or b"").decode("ascii"),
+            }
+        return {
+            "ok": True,
+            "status": "ok",
+            "exitCode": proc.returncode,
+            "stdoutBase64": base64.b64encode(proc.stdout).decode("ascii"),
+            "stderrBase64": base64.b64encode(proc.stderr).decode("ascii"),
+        }
+
+    return {
+        "ok": False,
+        "status": "unknown_command",
+        "error": f"unknown command: {cmd}",
+    }
 
 
 def main():

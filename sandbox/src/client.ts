@@ -50,3 +50,22 @@ export async function write(port: number, path: string, content: string): Promis
   const res = await sendRequest(port, { cmd: "write", path, contentBase64 });
   if (!res.ok) throw new SandboxError(res.error ?? "unknown error", res.status ?? "error");
 }
+
+export interface ExecResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  timedOut: boolean;
+}
+
+/** Runs a shell command in the container and returns its captured output. */
+export async function exec(port: number, command: string, timeout?: number): Promise<ExecResult> {
+  const res = await sendRequest(port, { cmd: "exec", command, timeout });
+  if (!res.ok) throw new SandboxError(res.error ?? "unknown error", res.status ?? "error");
+  return {
+    stdout: Buffer.from(res.stdoutBase64 ?? "", "base64").toString("utf8"),
+    stderr: Buffer.from(res.stderrBase64 ?? "", "base64").toString("utf8"),
+    exitCode: res.exitCode ?? 0,
+    timedOut: res.status === "timeout",
+  };
+}

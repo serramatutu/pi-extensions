@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
-import { read, SandboxError, write } from "../src/client.ts";
+import { exec as sandboxExec, read, SandboxError, write } from "../src/client.ts";
 import { loadConfig, type SandboxConfig } from "../src/config.ts";
 import { available, containerName, ensureImage, getPublishedPort, removeContainer, startContainer } from "../src/docker.ts";
 
@@ -79,6 +79,23 @@ test("creates parent directories when writing", { skip }, async () => {
   await write(port, `${config.workdir}/nested/deep/file.txt`, "nested\n");
   const content = await read(port, `${config.workdir}/nested/deep/file.txt`);
   assert(content === "nested\n", `unexpected content: ${JSON.stringify(content)}`);
+});
+
+test("executes a command and captures stdout and exit code", { skip }, async () => {
+  const res = await sandboxExec(port, "echo hello && echo oops >&2");
+  assert(res.exitCode === 0, `unexpected exit code: ${res.exitCode}`);
+  assert(res.stdout === "hello\n", `unexpected stdout: ${JSON.stringify(res.stdout)}`);
+  assert(res.stderr === "oops\n", `unexpected stderr: ${JSON.stringify(res.stderr)}`);
+});
+
+test("reports a non-zero exit code", { skip }, async () => {
+  const res = await sandboxExec(port, "exit 3");
+  assert(res.exitCode === 3, `unexpected exit code: ${res.exitCode}`);
+});
+
+test("runs commands in the mounted workdir", { skip }, async () => {
+  const res = await sandboxExec(port, "cat hello.txt");
+  assert(res.stdout === "hello from e2e\n", `unexpected stdout: ${JSON.stringify(res.stdout)}`);
 });
 
 test("rejects reading a missing file with a not_found status", { skip }, async () => {
