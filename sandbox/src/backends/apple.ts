@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 import { type Backend, configHash, type Result } from "../backend.ts";
 import type { ConnectionTarget } from "../client.ts";
@@ -122,9 +123,18 @@ async function runningConfigHash(name: string): Promise<string | null> {
   return (await readState()).containers[name] ?? "";
 }
 
+async function forceRemoveAndWait(name: string): Promise<void> {
+  await container(["delete", "--force", name]);
+  for (let i = 0; i < 50; i++) {
+    if ((await inspect(name)) === null) return;
+    await container(["delete", "--force", name]);
+    await sleep(100);
+  }
+}
+
 async function startContainer(config: SandboxConfig, name: string, cwd: string): Promise<Result> {
   // Remove any stale container with the same name, then start fresh.
-  await container(["delete", "--force", name]);
+  await forceRemoveAndWait(name);
 
   // No `-p` mapping: `container` gives each container its own IP, resolved by
   // endpoint() below. The server is reached directly on SERVER_PORT.
@@ -147,7 +157,11 @@ async function startContainer(config: SandboxConfig, name: string, cwd: string):
 
   args.push(config.image);
 
-  const res = await container(args);
+  let res = await container(args);
+  if (!res.ok && /already exists|in use/i.test(res.stderr)) {
+    await forceRemoveAndWait(name);
+    res = await container(args);
+  }
   if (res.ok) {
     const state = await readState();
     state.containers[name] = configHash(config);

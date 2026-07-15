@@ -102,7 +102,12 @@ async function startContainer(config: SandboxConfig, name: string, cwd: string):
   }
 
   args.push(config.image);
-  return docker(args);
+  let res = await docker(args);
+  if (!res.ok && /already in use|already exists/i.test(res.stderr)) {
+    await docker(["rm", "-f", name]);
+    res = await docker(args);
+  }
+  return res;
 }
 
 async function removeContainer(name: string): Promise<Result> {
