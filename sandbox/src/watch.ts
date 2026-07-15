@@ -26,6 +26,10 @@ export function sandbox(): Sandbox | null {
   return current;
 }
 
+function statusMessage(msg: string): string {
+  return `[🐳 ${msg}]`;
+}
+
 /**
  * Ensures a sandbox container is running for this session. Rebuilds the image
  * and restarts the container when the config has changed; no-ops when the
@@ -54,13 +58,13 @@ export async function startContainer(ctx: ExtensionContext): Promise<void> {
   if (running === hash) {
     await track(name, config.workdir);
     if (current) {
-      ctx.ui.setStatus("sandbox", `container ${name} up on :${current.port}`);
+      ctx.ui.setStatus("sandbox", statusMessage(`:${current.port}`));
       return;
     }
   }
 
   const changed = running !== null;
-  ctx.ui.setStatus("sandbox", changed ? "config changed; restarting container…" : "starting container…");
+  ctx.ui.setStatus("sandbox", statusMessage(changed ? "config changed; restarting container…" : "starting container…"));
 
   if (!(await ensureImage(config))) {
     ctx.ui.setStatus("sandbox", "");
@@ -81,7 +85,7 @@ export async function startContainer(ctx: ExtensionContext): Promise<void> {
     ctx.ui.notify(`sandbox: container ${name} started but no port could be resolved`, "error");
     return;
   }
-  ctx.ui.setStatus("sandbox", `container ${name} up on :${current.port}`);
+  ctx.ui.setStatus("sandbox", statusMessage(`:${current.port}`));
   ctx.ui.notify(`sandbox: container ${name} ${changed ? "restarted" : "started"} on port ${current.port}`, "info");
 }
 
