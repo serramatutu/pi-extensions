@@ -210,8 +210,7 @@ export function registerCommands(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "request_env_var",
     label: "request_env_var (sandbox)",
-    description:
-      "Request a missing environment variable from the user. Use it when a command fails due to missing environment config.",
+    description: "Request a missing environment variable from the user. Use it when a command fails due to missing environment config.",
     parameters: Type.Object({
       name: Type.String({ description: "Name of the missing environment variable to request from the user" }),
     }),

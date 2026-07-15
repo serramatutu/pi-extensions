@@ -7,14 +7,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 import { read, SandboxError, write } from "../src/client.ts";
 import { loadConfig, type SandboxConfig } from "../src/config.ts";
-import {
-  available,
-  containerName,
-  ensureImage,
-  getPublishedPort,
-  removeContainer,
-  startContainer,
-} from "../src/docker.ts";
+import { available, containerName, ensureImage, getPublishedPort, removeContainer, startContainer } from "../src/docker.ts";
 
 const exec = promisify(execFile);
 const hasDocker = await available();
@@ -97,4 +90,4 @@ test("rejects reading a missing file with a not_found status", { skip }, async (
     return;
   }
   throw new Error("expected rejection");
-}); 
+});

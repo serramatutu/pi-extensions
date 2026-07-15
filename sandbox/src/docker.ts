@@ -72,7 +72,7 @@ export async function ensureImage(config: SandboxConfig): Promise<boolean> {
 
 /** Returns the config hash of a running container, or null if it isn't running. */
 export async function runningConfigHash(name: string): Promise<string | null> {
-  const res = await docker(["inspect", "-f", "{{.State.Running}}|{{index .Config.Labels \"" + CONFIG_HASH_LABEL + "\"}}", name]);
+  const res = await docker(["inspect", "-f", '{{.State.Running}}|{{index .Config.Labels "' + CONFIG_HASH_LABEL + '"}}', name]);
   if (!res.ok) return null;
   const [running, hash] = res.stdout.trim().split("|");
   if (running !== "true") return null;
@@ -126,6 +126,9 @@ export async function getPublishedPort(name: string): Promise<number | null> {
   const res = await docker(["port", name, `${SERVER_PORT}/tcp`]);
   if (!res.ok) return null;
   // Output looks like "127.0.0.1:49158"; take the last colon-separated field.
-  const match = res.stdout.trim().split("\n")[0]?.match(/:(\d+)\s*$/);
+  const match = res.stdout
+    .trim()
+    .split("\n")[0]
+    ?.match(/:(\d+)\s*$/);
   return match ? Number(match[1]) : null;
 }

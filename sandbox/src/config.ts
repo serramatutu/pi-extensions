@@ -7,20 +7,7 @@ import { z } from "zod";
 /** Port the sandbox server listens on inside the container. */
 export const SERVER_PORT = 7070;
 
-const DEFAULT_TOOLS = [
-  "bash",
-  "coreutils",
-  "findutils",
-  "sed",
-  "gawk",
-  "jq",
-  "yq",
-  "ripgrep",
-  "fd",
-  "git",
-  "curl",
-  "ca-certificates",
-];
+const DEFAULT_TOOLS = ["bash", "coreutils", "findutils", "sed", "gawk", "jq", "yq", "ripgrep", "fd", "git", "curl", "ca-certificates"];
 
 const mountSchema = z.object({
   source: z.string().min(1),
