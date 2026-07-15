@@ -16,6 +16,8 @@ const mountSchema = z.object({
 });
 
 const configSchema = z.object({
+  // Container backend that runs the sandbox: Docker or Apple's `container` CLI.
+  backend: z.enum(["docker", "container"]).default("docker"),
   image: z.string().min(1).default("pi-coding-sandbox"),
   baseImage: z.string().min(1).default("alpine:latest"),
   tools: z.array(z.string().min(1)).default(DEFAULT_TOOLS),

@@ -1,19 +1,13 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { setTimeout as sleep } from "node:timers/promises";
+import { type Backend, configHash, containerName, getBackend } from "./backend.ts";
+import type { ConnectionTarget } from "./client.ts";
 import { loadConfig } from "./config.ts";
-import {
-  available,
-  configHash,
-  containerName,
-  ensureImage,
-  getPublishedPort,
-  removeContainer,
-  runningConfigHash,
-  startContainer as dockerStart,
-} from "./docker.ts";
 
 export interface Sandbox {
   name: string;
+  /** Host the sandbox server is reachable on (loopback or container IP). */
+  host: string;
   port: number;
   /** Container path that the session cwd is mounted at. */
   workdir: string;
@@ -30,17 +24,18 @@ function statusMessage(msg: string): string {
   return `[🐳 ${msg}]`;
 }
 
+/** Clears the sandbox status line and reports a startup error to the user. */
+function fail(ctx: ExtensionContext, msg: string): void {
+  ctx.ui.setStatus("sandbox", "");
+  ctx.ui.notify(msg, "error");
+}
+
 /**
  * Ensures a sandbox container is running for this session. Rebuilds the image
  * and restarts the container when the config has changed; no-ops when the
  * running container already matches the current config.
  */
 export async function startContainer(ctx: ExtensionContext): Promise<void> {
-  if (!(await available())) {
-    ctx.ui.notify("sandbox: docker not found; skipping container startup", "warning");
-    return;
-  }
-
   let config;
   try {
     ({ config } = await loadConfig(ctx.cwd));
@@ -49,14 +44,20 @@ export async function startContainer(ctx: ExtensionContext): Promise<void> {
     return;
   }
 
+  const backend = await getBackend(config);
+  if (!(await backend.available())) {
+    ctx.ui.notify(`sandbox: ${backend.name} not found; skipping container startup`, "warning");
+    return;
+  }
+
   const name = containerName(config, ctx.sessionManager.getSessionId());
   const hash = configHash(config);
-  const running = await runningConfigHash(name);
+  const running = await backend.runningConfigHash(name);
 
   // Reuse the running container only when it matches the config AND still
-  // exposes a reachable port. Otherwise fall through and (re)start it.
+  // exposes a reachable endpoint. Otherwise fall through and (re)start it.
   if (running === hash) {
-    await track(name, config.workdir);
+    await track(backend, name, config.workdir);
     if (current) {
       ctx.ui.setStatus("sandbox", statusMessage(`:${current.port}`));
       return;
@@ -66,37 +67,31 @@ export async function startContainer(ctx: ExtensionContext): Promise<void> {
   const changed = running !== null;
   ctx.ui.setStatus("sandbox", statusMessage(changed ? "config changed; restarting container…" : "starting container…"));
 
-  if (!(await ensureImage(config))) {
-    ctx.ui.setStatus("sandbox", "");
-    ctx.ui.notify(`sandbox: failed to build image ${config.image}`, "error");
-    return;
+  if (!(await backend.ensureImage(config))) {
+    return fail(ctx, `sandbox: failed to build image ${config.image}`);
   }
 
-  const run = await dockerStart(config, name, ctx.cwd);
+  const run = await backend.startContainer(config, name, ctx.cwd);
   if (!run.ok) {
-    ctx.ui.setStatus("sandbox", "");
-    ctx.ui.notify(`sandbox: failed to start container: ${run.stderr.trim()}`, "error");
-    return;
+    return fail(ctx, `sandbox: failed to start container: ${run.stderr.trim()}`);
   }
 
-  await track(name, config.workdir);
+  await track(backend, name, config.workdir);
   if (!current) {
-    ctx.ui.setStatus("sandbox", "");
-    ctx.ui.notify(`sandbox: container ${name} started but no port could be resolved`, "error");
-    return;
+    return fail(ctx, `sandbox: container ${name} started but no endpoint could be resolved`);
   }
   ctx.ui.setStatus("sandbox", statusMessage(`:${current.port}`));
   ctx.ui.notify(`sandbox: container ${name} ${changed ? "restarted" : "started"} on port ${current.port}`, "info");
 }
 
-async function track(name: string, workdir: string): Promise<void> {
-  // The port mapping may not be published the instant `docker run` returns.
-  let port: number | null = null;
-  for (let i = 0; i < 50 && port === null; i++) {
-    port = await getPublishedPort(name);
-    if (port === null) await sleep(100);
+async function track(backend: Backend, name: string, workdir: string): Promise<void> {
+  // The endpoint may not be resolvable the instant the container starts.
+  let target: ConnectionTarget | null = null;
+  for (let i = 0; i < 50 && target === null; i++) {
+    target = await backend.endpoint(name);
+    if (target === null) await sleep(100);
   }
-  current = port === null ? null : { name, port, workdir };
+  current = target === null ? null : { name, ...target, workdir };
 }
 
 /** Removes the running sandbox container, if any. */
@@ -104,7 +99,14 @@ export async function stopContainer(ctx: ExtensionContext): Promise<void> {
   if (!current) return;
   const name = current.name;
   current = null;
-  const res = await removeContainer(name);
+  let config;
+  try {
+    ({ config } = await loadConfig(ctx.cwd));
+  } catch {
+    return;
+  }
+  const backend = await getBackend(config);
+  const res = await backend.removeContainer(name);
   if (!res.ok) {
     ctx.ui.notify(`sandbox: failed to remove container ${name}: ${res.stderr.trim()}`, "warning");
     return;

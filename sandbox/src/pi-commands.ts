@@ -133,7 +133,7 @@ async function readWithGrant(ctx: ExtensionContext, path: string): Promise<strin
   const target = toContainerPath(ctx.cwd, box.workdir, path);
 
   try {
-    return await read(box.port, target);
+    return await read(box, target);
   } catch (err: any) {
     const missing = err instanceof SandboxError && err.status === "not_found";
     if (!missing || !ctx.hasUI || !existsSync(hostAbs)) throw err;
@@ -146,7 +146,7 @@ async function readWithGrant(ctx: ExtensionContext, path: string): Promise<strin
       true,
     );
     if (!granted) throw err;
-    return await read(granted.port, target);
+    return await read(granted, target);
   }
 }
 
@@ -187,7 +187,7 @@ async function writeWithGrant(ctx: ExtensionContext, path: string, content: stri
   let box = await ensureBox(ctx);
   const target = toContainerPath(ctx.cwd, box.workdir, path);
   box = await ensureWritable(ctx, box, path, target);
-  await write(box.port, target, content);
+  await write(box, target, content);
   return target;
 }
 
@@ -220,9 +220,9 @@ async function editWithGrant(ctx: ExtensionContext, path: string, edits: Edit[])
   const target = toContainerPath(ctx.cwd, box.workdir, path);
   box = await ensureWritable(ctx, box, path, target);
 
-  const content = await read(box.port, target);
+  const content = await read(box, target);
   const updated = applyEdits(content, edits);
-  await write(box.port, target, updated);
+  await write(box, target, updated);
   return target;
 }
 
@@ -232,7 +232,7 @@ async function editWithGrant(ctx: ExtensionContext, path: string, edits: Edit[])
  * is no output.
  */
 async function runCommand(box: Sandbox, argv: string[], emptyText: string) {
-  const res = await exec(box.port, argv.join(" "));
+  const res = await exec(box, argv.join(" "));
   const text = truncateTail([res.stdout, res.stderr].filter(Boolean).join("\n"));
   return { content: [{ type: "text" as const, text: text || emptyText }], details: { exitCode: res.exitCode } };
 }
@@ -382,7 +382,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const box = await ensureBox(ctx);
-      const res = await exec(box.port, params.command, params.timeout);
+      const res = await exec(box, params.command, params.timeout);
 
       const combined = [res.stdout, res.stderr].filter(Boolean).join("\n");
       let text = truncateTail(combined);

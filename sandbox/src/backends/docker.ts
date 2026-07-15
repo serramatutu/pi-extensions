@@ -1,23 +1,15 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
-import { SERVER_PORT, type SandboxConfig } from "./config.ts";
-import { generateDockerfile } from "./dockerfile.ts";
+import { type Backend, configHash, type Result } from "../backend.ts";
+import type { ConnectionTarget } from "../client.ts";
+import { SERVER_PORT, type SandboxConfig } from "../config.ts";
+import { generateDockerfile } from "../dockerfile.ts";
 
 const CONFIG_HASH_LABEL = "pi.sandbox.config-hash";
 const DOCKERFILE_HASH_LABEL = "pi.sandbox.dockerfile-hash";
 
-export function configHash(config: SandboxConfig): string {
-  return createHash("sha256").update(JSON.stringify(config)).digest("hex");
-}
-
 const exec = promisify(execFile);
-
-interface Result {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-}
 
 async function docker(args: string[]): Promise<Result> {
   try {
@@ -44,11 +36,7 @@ function dockerBuildFromStdin(image: string, dockerfile: string): Promise<Result
   });
 }
 
-export function containerName(config: SandboxConfig, sessionId: string): string {
-  return config.namePrefix + sessionId.replace(/[^a-zA-Z0-9_.-]/g, "-");
-}
-
-export async function available(): Promise<boolean> {
+async function available(): Promise<boolean> {
   return (await docker(["--version"])).ok;
 }
 
@@ -63,7 +51,7 @@ async function imageDockerfileHash(image: string): Promise<string | null> {
  * Builds the image when it is missing or when its baked Dockerfile differs from
  * the one the current config produces (e.g. a stale image from an older build).
  */
-export async function ensureImage(config: SandboxConfig): Promise<boolean> {
+async function ensureImage(config: SandboxConfig): Promise<boolean> {
   const dockerfile = generateDockerfile(config);
   const wantHash = createHash("sha256").update(dockerfile).digest("hex");
   if ((await imageDockerfileHash(config.image)) === wantHash) return true;
@@ -71,7 +59,7 @@ export async function ensureImage(config: SandboxConfig): Promise<boolean> {
 }
 
 /** Returns the config hash of a running container, or null if it isn't running. */
-export async function runningConfigHash(name: string): Promise<string | null> {
+async function runningConfigHash(name: string): Promise<string | null> {
   const res = await docker(["inspect", "-f", '{{.State.Running}}|{{index .Config.Labels "' + CONFIG_HASH_LABEL + '"}}', name]);
   if (!res.ok) return null;
   const [running, hash] = res.stdout.trim().split("|");
@@ -79,7 +67,7 @@ export async function runningConfigHash(name: string): Promise<string | null> {
   return hash ?? "";
 }
 
-export async function startContainer(config: SandboxConfig, name: string, cwd: string): Promise<Result> {
+async function startContainer(config: SandboxConfig, name: string, cwd: string): Promise<Result> {
   // Remove any stale container with the same name, then start fresh.
   await docker(["rm", "-f", name]);
 
@@ -93,7 +81,7 @@ export async function startContainer(config: SandboxConfig, name: string, cwd: s
     "-w",
     config.workdir,
     // Bind to a host-assigned ephemeral port on loopback; resolve it later
-    // with getPublishedPort so each session gets its own free port.
+    // with endpoint() so each session gets its own free port.
     "-p",
     `127.0.0.1::${SERVER_PORT}`,
   ];
@@ -117,12 +105,12 @@ export async function startContainer(config: SandboxConfig, name: string, cwd: s
   return docker(args);
 }
 
-export async function removeContainer(name: string): Promise<Result> {
+async function removeContainer(name: string): Promise<Result> {
   return docker(["rm", "-f", name]);
 }
 
-/** Returns the host port mapped to the container's server port, or null. */
-export async function getPublishedPort(name: string): Promise<number | null> {
+/** Returns the loopback host+port mapped to the container's server port, or null. */
+async function endpoint(name: string): Promise<ConnectionTarget | null> {
   const res = await docker(["port", name, `${SERVER_PORT}/tcp`]);
   if (!res.ok) return null;
   // Output looks like "127.0.0.1:49158"; take the last colon-separated field.
@@ -130,5 +118,15 @@ export async function getPublishedPort(name: string): Promise<number | null> {
     .trim()
     .split("\n")[0]
     ?.match(/:(\d+)\s*$/);
-  return match ? Number(match[1]) : null;
+  return match ? { host: "127.0.0.1", port: Number(match[1]) } : null;
 }
+
+export const dockerBackend: Backend = {
+  name: "docker",
+  available,
+  ensureImage,
+  runningConfigHash,
+  startContainer,
+  removeContainer,
+  endpoint,
+};
