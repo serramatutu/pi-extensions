@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
-import { read, SandboxError } from "../src/client.ts";
+import { read, SandboxError, write } from "../src/client.ts";
 import { loadConfig, type SandboxConfig } from "../src/config.ts";
 import {
   available,
@@ -74,6 +74,18 @@ test("reads a file created inside the container", { skip }, async () => {
   await exec("docker", ["exec", name, "sh", "-c", "echo written-inside > /tmp/inside.txt"]);
   const content = await read(port, "/tmp/inside.txt");
   assert(content === "written-inside\n", `unexpected content: ${JSON.stringify(content)}`);
+});
+
+test("writes a file to a mounted directory and reads it back", { skip }, async () => {
+  await write(port, `${config.workdir}/out.txt`, "written via tcp\n");
+  const content = await read(port, `${config.workdir}/out.txt`);
+  assert(content === "written via tcp\n", `unexpected content: ${JSON.stringify(content)}`);
+});
+
+test("creates parent directories when writing", { skip }, async () => {
+  await write(port, `${config.workdir}/nested/deep/file.txt`, "nested\n");
+  const content = await read(port, `${config.workdir}/nested/deep/file.txt`);
+  assert(content === "nested\n", `unexpected content: ${JSON.stringify(content)}`);
 });
 
 test("rejects reading a missing file with a not_found status", { skip }, async () => {

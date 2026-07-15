@@ -20,6 +20,19 @@ read)
     jq -cn --arg p "$path" '{ok:false, status:"not_found", error:("no such file: " + $p)}'
   fi
   ;;
+write)
+  path=$(printf '%s' "$req" | jq -r '.path // empty')
+  if [ -z "$path" ]; then
+    jq -cn '{ok:false, status:"bad_request", error:"missing path"}'
+  else
+    dir=$(dirname "$path")
+    if mkdir -p "$dir" && printf '%s' "$req" | jq -r '.contentBase64 // empty' | base64 -d > "$path"; then
+      jq -cn '{ok:true, status:"ok"}'
+    else
+      jq -cn --arg p "$path" '{ok:false, status:"write_failed", error:("could not write: " + $p)}'
+    fi
+  fi
+  ;;
 *)
   jq -cn --arg c "$cmd" '{ok:false, status:"unknown_command", error:("unknown command: " + $c)}'
   ;;

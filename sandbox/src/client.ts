@@ -43,3 +43,10 @@ export async function read(port: number, path: string): Promise<string> {
   if (!res.ok) throw new SandboxError(res.error ?? "unknown error", res.status ?? "error");
   return Buffer.from(res.contentBase64, "base64").toString("utf8");
 }
+
+/** Writes contents to a file on the container filesystem, creating parent dirs. */
+export async function write(port: number, path: string, content: string): Promise<void> {
+  const contentBase64 = Buffer.from(content, "utf8").toString("base64");
+  const res = await sendRequest(port, { cmd: "write", path, contentBase64 });
+  if (!res.ok) throw new SandboxError(res.error ?? "unknown error", res.status ?? "error");
+}

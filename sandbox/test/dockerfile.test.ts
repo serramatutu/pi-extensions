@@ -59,6 +59,7 @@ test("bakes the handler script as a decodable base64 blob", async () => {
   const script = Buffer.from(match![1], "base64").toString("utf8");
   assert.match(script, /^#!\/bin\/sh/);
   assert.match(script, /read\)/);
+  assert.match(script, /write\)/);
   assert.match(script, /unknown command/);
 });
 
