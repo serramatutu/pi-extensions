@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
+import { stringify } from "yaml";
 import { addMount, loadConfig } from "../src/config.ts";
 
 let dir: string;
@@ -15,16 +16,16 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-test("creates sandbox.json with the mount when none exists", async () => {
+test("creates pi-sandbox.yaml with the mount when none exists", async () => {
   const path = await addMount(dir, { source: "/host/f", target: "/host/f", readonly: true });
-  assert.equal(path, join(dir, "sandbox.json"));
+  assert.equal(path, join(dir, "pi-sandbox.yaml"));
 
   const { config } = await loadConfig(dir);
   assert.deepEqual(config.mounts, [{ source: "/host/f", target: "/host/f", readonly: true }]);
 });
 
 test("appends to an existing config without dropping other fields", async () => {
-  await writeFile(join(dir, "sandbox.json"), JSON.stringify({ image: "custom", mounts: [] }));
+  await writeFile(join(dir, "pi-sandbox.yaml"), stringify({ image: "custom", mounts: [] }));
   await addMount(dir, { source: "/a", target: "/a", readonly: true });
 
   const { config } = await loadConfig(dir);

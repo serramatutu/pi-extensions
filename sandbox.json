@@ -1,9 +1,0 @@
-{
-  "mounts": [
-    {
-      "source": "/Users/lucas/.dotfiles/home/.pi/agent/settings.json",
-      "target": "/Users/lucas/.dotfiles/home/.pi/agent/settings.json",
-      "readonly": true
-    }
-  ]
-}

@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { parse, stringify } from "yaml";
 import { z } from "zod";
 
 /** Port the sandbox server listens on inside the container. */
@@ -43,12 +44,12 @@ export type SandboxMount = z.infer<typeof mountSchema>;
 
 export type SandboxConfig = z.infer<typeof configSchema>;
 
-const CWD_CONFIG = "sandbox.json";
-const GLOBAL_CONFIG = join(homedir(), ".pi", "agent", "sandbox.json");
+const CWD_CONFIG = "pi-sandbox.yaml";
+const GLOBAL_CONFIG = join(homedir(), ".pi", "agent", "pi-sandbox.yaml");
 
-async function readJson(path: string): Promise<unknown | null> {
+async function readYaml(path: string): Promise<unknown | null> {
   try {
-    return JSON.parse(await readFile(path, "utf8"));
+    return parse(await readFile(path, "utf8"));
   } catch (err: any) {
     if (err?.code === "ENOENT") return null;
     throw err;
@@ -61,14 +62,14 @@ export interface LoadedConfig {
 }
 
 /**
- * Loads sandbox.json from cwd, falling back to ~/.pi/agent/sandbox.json.
+ * Loads pi-sandbox.yaml from cwd, falling back to ~/.pi/agent/pi-sandbox.yaml.
  * When neither exists, schema defaults are used.
  */
 export async function loadConfig(cwd: string): Promise<LoadedConfig> {
   const candidates = [join(cwd, CWD_CONFIG), GLOBAL_CONFIG];
 
   for (const path of candidates) {
-    const raw = await readJson(path);
+    const raw = await readYaml(path);
     if (raw === null) continue;
     return { config: configSchema.parse(raw), source: path };
   }
@@ -78,19 +79,19 @@ export async function loadConfig(cwd: string): Promise<LoadedConfig> {
 
 /**
  * Adds a mount to the sandbox config file and returns the path written. Writes
- * to the config that was loaded (cwd or global), or creates cwd/sandbox.json.
+ * to the config that was loaded (cwd or global), or creates cwd/pi-sandbox.yaml.
  * No-ops when an identical mount already exists.
  */
 export async function addMount(cwd: string, mount: SandboxMount): Promise<string> {
   const { source } = await loadConfig(cwd);
   const path = source ?? join(cwd, CWD_CONFIG);
 
-  const raw = ((await readJson(path)) ?? {}) as Record<string, unknown>;
+  const raw = ((await readYaml(path)) ?? {}) as Record<string, unknown>;
   const mounts = Array.isArray(raw.mounts) ? (raw.mounts as SandboxMount[]) : [];
   const exists = mounts.some((m) => m.source === mount.source && m.target === mount.target);
   if (!exists) mounts.push(mount);
 
   raw.mounts = mounts;
-  await writeFile(path, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+  await writeFile(path, stringify(raw), "utf8");
   return path;
 }
