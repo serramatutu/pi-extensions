@@ -7,9 +7,15 @@
     "test": "pnpm -r test",
     "test:unit": "pnpm -r test:unit",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,js,json,md,yaml,yml}": "prettier --write"
   },
   "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.8",
     "prettier": "^3.9.5"
   }
 }
